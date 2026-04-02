@@ -132,12 +132,12 @@ let bestStreak = 0;
 let difficulty = 0; // increases with each catch
 
 function getDifficultyMultiplier() {
-  return 1 + difficulty * 0.12;
+  return 1.4 + difficulty * 0.12;
 }
 
 function getCatchZoneSize() {
-  // Starts small at 180 and shrinks to 70 as difficulty ramps
-  return Math.max(70, 180 - difficulty * 8);
+  // Starts at 140 and shrinks to 60 as difficulty ramps
+  return Math.max(60, 140 - difficulty * 6);
 }
 
 // ============================================================
@@ -298,7 +298,8 @@ function spawnFish() {
   const fromLeft = Math.random() > 0.5;
   const baseSpeed = 130 + Math.random() * 80;
   const speed = baseSpeed * getDifficultyMultiplier();
-  const yPos = WATER_LINE + 170 + Math.random() * 300;
+  // Always spawn within the catch zone's Y range so every fish is catchable
+  const yPos = catchZone.y + Math.random() * (catchZone.h - 20);
 
   fish = {
     x: fromLeft ? -50 : GAME_W + 50,
