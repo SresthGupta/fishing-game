@@ -111,25 +111,74 @@ const SHORE_GRASS = "#4a7c59";
 // Game states
 const STATE = {
   TITLE: "title",
+  MODE_SELECT: "mode_select",
   FISHING: "fishing",
   CAUGHT: "caught",
   MISSED: "missed",
   REVEAL: "reveal",
   END: "end",
+  LEVEL_COMPLETE: "level_complete",
+  GAME_OVER: "game_over",
+  UPGRADE_SHOP: "upgrade_shop",
+  VICTORY: "victory",
 };
 
 let gameState = STATE.TITLE;
 let stateTimer = 0;
 let lastTime = 0;
 
-// Score
+// Mode: "love" (original) or "arcade" (new)
+let gameMode = "love";
+
+// Score (love-letter mode)
 let score = 0;
 let misses = 0;
 let streak = 0;
 let bestStreak = 0;
 
-// Difficulty
+// Difficulty (love-letter mode)
 let difficulty = 0; // increases with each catch
+
+// ============================================================
+// ARCADE STATE (namespaced to prevent leakage)
+// ============================================================
+function createArcadeState() {
+  return {
+    fishes: [],
+    hook: { x: GAME_W / 2, y: 950, targetX: GAME_W / 2, targetY: 950, radius: 20 },
+    hookTouched: false,
+    level: 0,
+    catches: 0,
+    coins: 0,
+    lives: 5,
+    spawnTimer: 0,
+    score: 0,
+    streak: 0,
+    bestStreak: 0,
+    upgrades: { hookSize: 0, lineLength: 0 },
+    floatingTexts: [],
+    particles: [],
+  };
+}
+let arcade = null; // initialized after WATER_LINE is defined
+
+// ============================================================
+// LEVEL CONFIGURATION
+// ============================================================
+const LEVELS = [
+  { name: "Shallow Reef", theme: "french_tip", targetCatches: 8, maxFish: 2, spawnInterval: 2.2, speedRange: [90, 150], lives: 5, coinsPerCatch: 5, fishColor: "#f5c6a8",
+    waterTop: [70, 150, 200], waterBot: [30, 70, 120] },
+  { name: "Coral Gardens", theme: "ombre", targetCatches: 10, maxFish: 3, spawnInterval: 1.9, speedRange: [100, 170], lives: 5, coinsPerCatch: 8, fishColor: "#e599f7",
+    waterTop: [50, 120, 170], waterBot: [25, 55, 100] },
+  { name: "Sweetheart Cove", theme: "hearts", targetCatches: 12, maxFish: 3, spawnInterval: 1.7, speedRange: [110, 180], lives: 4, coinsPerCatch: 10, fishColor: "#ff6b6b",
+    waterTop: [40, 100, 150], waterBot: [20, 45, 85] },
+  { name: "Silver Current", theme: "chrome", targetCatches: 14, maxFish: 4, spawnInterval: 1.5, speedRange: [120, 195], lives: 4, coinsPerCatch: 13, fishColor: "#c0c0c0",
+    waterTop: [35, 80, 130], waterBot: [15, 38, 72] },
+  { name: "Prismatic Depths", theme: "holographic", targetCatches: 16, maxFish: 4, spawnInterval: 1.3, speedRange: [130, 210], lives: 3, coinsPerCatch: 16, fishColor: "#74c0fc",
+    waterTop: [25, 55, 110], waterBot: [12, 30, 58] },
+  { name: "The Glitter Abyss", theme: "glitter", targetCatches: 20, maxFish: 5, spawnInterval: 1.1, speedRange: [140, 225], lives: 3, coinsPerCatch: 20, fishColor: "#ffd93d",
+    waterTop: [18, 35, 80], waterBot: [8, 18, 40] },
+];
 
 function getDifficultyMultiplier() {
   return 1.7 + difficulty * 0.14;
@@ -161,6 +210,9 @@ function drawText(text, x, y, color, size, align) {
 // ============================================================
 const WATER_LINE = 650;
 
+// Initialize arcade state now that WATER_LINE is defined
+arcade = createArcadeState();
+
 let rippleOffset = 0;
 
 function drawScene(dt) {
@@ -185,11 +237,18 @@ function drawScene(dt) {
 
   // Water
   rippleOffset += dt * 8;
+  let wt, wb;
+  if (gameMode === "arcade" && (gameState === STATE.FISHING || gameState === STATE.LEVEL_COMPLETE || gameState === STATE.GAME_OVER || gameState === STATE.VICTORY || gameState === STATE.UPGRADE_SHOP)) {
+    const lvl = LEVELS[arcade.level] || LEVELS[0];
+    wt = lvl.waterTop; wb = lvl.waterBot;
+  } else {
+    wt = [46, 90, 136]; wb = [15, 39, 68];
+  }
   for (let y = WATER_LINE; y < GAME_H; y++) {
     const t = (y - WATER_LINE) / (GAME_H - WATER_LINE);
-    const r = lerp(46, 15, t);
-    const g = lerp(90, 39, t);
-    const b = lerp(136, 68, t);
+    const r = lerp(wt[0], wb[0], t);
+    const g = lerp(wt[1], wb[1], t);
+    const b = lerp(wt[2], wb[2], t);
     fillRect(0, y, GAME_W, 1, `rgb(${r|0},${g|0},${b|0})`);
   }
 
@@ -233,7 +292,10 @@ function drawDock() {
   ctx.lineTo(165, WATER_LINE - 135);
   ctx.stroke();
 
-  // Line from rod
+  // In arcade mode, the hook draws its own line from rod tip
+  if (gameMode === "arcade" && gameState === STATE.FISHING) return;
+
+  // Static line from rod (love-letter mode)
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -251,6 +313,66 @@ function lerp(a, b, t) {
 }
 
 // ============================================================
+// RESET & MODE SELECT
+// ============================================================
+function resetLoveGame() {
+  shuffleMessages();
+  score = 0;
+  misses = 0;
+  streak = 0;
+  bestStreak = 0;
+  difficulty = 0;
+}
+
+function resetArcade() {
+  arcade = createArcadeState();
+}
+
+function drawModeSelect(dt) {
+  titleBob += dt * 2;
+  const bobY = Math.sin(titleBob) * 6;
+
+  drawText("choose your game", GAME_W / 2, 300 + bobY, "#eceff4", 36);
+
+  // Love Letters button (left side)
+  const lx = 80, ly = 480, lw = 260, lh = 320;
+  fillRect(lx, ly, lw, lh, "rgba(255, 107, 107, 0.12)");
+  ctx.strokeStyle = "rgba(255, 107, 107, 0.4)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(lx, ly, lw, lh);
+  drawText("\u2665", lx + lw / 2, ly + 100, "#ff6b6b", 72);
+  drawText("Love", lx + lw / 2, ly + 180, "#eceff4", 28);
+  drawText("Letters", lx + lw / 2, ly + 215, "#eceff4", 28);
+  drawText("the original", lx + lw / 2, ly + 270, "rgba(236,239,244,0.4)", 18);
+
+  // Nail Salon Reef button (right side)
+  const rx = 410, ry = 480, rw = 260, rh = 320;
+  fillRect(rx, ry, rw, rh, "rgba(204, 93, 232, 0.12)");
+  ctx.strokeStyle = "rgba(204, 93, 232, 0.4)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(rx, ry, rw, rh);
+
+  // Sparkle fish icon
+  drawFishSprite(rx + rw / 2 - 20, ry + 80, "#cc5de8", 1, false, 2.4);
+  // Sparkles around fish
+  for (let i = 0; i < 4; i++) {
+    const sx = rx + rw / 2 - 30 + Math.sin(titleBob * 3 + i * 1.8) * 40;
+    const sy = ry + 80 + Math.cos(titleBob * 2.5 + i * 2.2) * 20;
+    const ss = 3 + Math.sin(titleBob * 4 + i) * 2;
+    if (ss > 1) fillRect(sx, sy, ss, ss, "#ffd93d");
+  }
+
+  drawText("Nail Salon", rx + rw / 2, ry + 180, "#eceff4", 28);
+  drawText("Reef", rx + rw / 2, ry + 215, "#eceff4", 28);
+  drawText("arcade mode", rx + rw / 2, ry + 270, "rgba(236,239,244,0.4)", 18);
+
+  // Tap hint
+  if (Math.sin(titleBob * 2) > -0.3) {
+    drawText("tap a mode to play", GAME_W / 2, GAME_H - 230, "rgba(236,239,244,0.5)", 22);
+  }
+}
+
+// ============================================================
 // TITLE SCREEN
 // ============================================================
 let titleBob = 0;
@@ -262,10 +384,7 @@ function drawTitle(dt) {
   drawText("Gone Fishing", GAME_W / 2, 340 + bobY, "#eceff4", 52);
 
   // Fish icon
-  const savedFish = fish;
-  fish = { size: 2.2 };
-  drawFishSprite(GAME_W / 2 - 20, 430 + bobY * 0.5, "#ff6b6b", 1, false);
-  fish = savedFish;
+  drawFishSprite(GAME_W / 2 - 20, 430 + bobY * 0.5, "#ff6b6b", 1, false, 2.2);
 
   // Subtitle
   drawText("a little game just for you", GAME_W / 2, 500, "rgba(236,239,244,0.5)", 22);
@@ -332,8 +451,8 @@ function updateFish(dt) {
   }
 }
 
-function drawFishSprite(x, y, color, dir, shadow) {
-  const s = fish ? fish.size || 1 : 1;
+function drawFishSprite(x, y, color, dir, shadow, size) {
+  const s = size || (fish ? fish.size || 1 : 1);
 
   // Body
   const bw = Math.floor(18 * s), bh = Math.floor(10 * s);
@@ -670,23 +789,21 @@ function drawEndScreen(dt) {
 // ============================================================
 let inputLocked = false;
 
-function handleTap() {
+function handleTap(gx, gy) {
   if (inputLocked) return;
 
   switch (gameState) {
     case STATE.TITLE:
-      shuffleMessages();
-      score = 0;
-      misses = 0;
-      streak = 0;
-      bestStreak = 0;
-      difficulty = 0;
-      gameState = STATE.FISHING;
+      gameState = STATE.MODE_SELECT;
       stateTimer = 0;
-      spawnFish();
+      break;
+
+    case STATE.MODE_SELECT:
+      handleModeSelectTap(gx, gy);
       break;
 
     case STATE.FISHING:
+      if (gameMode === "arcade") return; // arcade uses hook collision, not taps
       if (!fish || fish.caught || fish.escaped) return;
       inputLocked = true;
       if (isFishInZone()) {
@@ -725,22 +842,86 @@ function handleTap() {
 
     case STATE.END:
       if (endTimer > 2) {
-        shuffleMessages();
-        score = 0;
-        misses = 0;
-        streak = 0;
-        bestStreak = 0;
-        difficulty = 0;
+        resetLoveGame();
         gameState = STATE.FISHING;
         stateTimer = 0;
         spawnFish();
       }
       break;
+
+    case STATE.LEVEL_COMPLETE:
+      handleLevelCompleteTap(gx, gy);
+      break;
+
+    case STATE.GAME_OVER:
+      if (stateTimer > 1.5) {
+        gameState = STATE.MODE_SELECT;
+        stateTimer = 0;
+      }
+      break;
+
+    case STATE.VICTORY:
+      if (stateTimer > 2) {
+        gameState = STATE.MODE_SELECT;
+        stateTimer = 0;
+      }
+      break;
+
+    case STATE.UPGRADE_SHOP:
+      handleUpgradeShopTap(gx, gy);
+      break;
   }
 }
 
-// Prevent all default touch behaviors
-document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+function handleModeSelectTap(gx, gy) {
+  // Love Letters button: (80, 480) to (340, 800)
+  if (gx >= 80 && gx <= 340 && gy >= 480 && gy <= 800) {
+    gameMode = "love";
+    resetLoveGame();
+    gameState = STATE.FISHING;
+    stateTimer = 0;
+    spawnFish();
+    return;
+  }
+  // Nail Salon Reef button: (410, 480) to (670, 800)
+  if (gx >= 410 && gx <= 670 && gy >= 480 && gy <= 800) {
+    gameMode = "arcade";
+    resetArcade();
+    gameState = STATE.FISHING;
+    stateTimer = 0;
+    return;
+  }
+}
+
+// Stub handlers for arcade states (implemented in later units)
+function handleLevelCompleteTap(gx, gy) {}
+function handleUpgradeShopTap(gx, gy) {}
+
+// Prevent all default touch behaviors + arcade hook tracking
+document.addEventListener("touchmove", (e) => {
+  e.preventDefault();
+  if (gameMode === "arcade" && gameState === STATE.FISHING) {
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const gx = (touch.clientX / rect.width) * GAME_W;
+    const gy = (touch.clientY / rect.height) * GAME_H;
+    arcade.hook.targetX = Math.max(20, Math.min(GAME_W - 20, gx));
+    arcade.hook.targetY = Math.max(WATER_LINE + 20, Math.min(GAME_H - 20, gy));
+    if (!arcade.hookTouched) arcade.hookTouched = true;
+  }
+}, { passive: false });
+
+// Mouse move for desktop hook tracking
+document.addEventListener("mousemove", (e) => {
+  if (gameMode === "arcade" && gameState === STATE.FISHING) {
+    const rect = canvas.getBoundingClientRect();
+    const gx = (e.clientX / rect.width) * GAME_W;
+    const gy = (e.clientY / rect.height) * GAME_H;
+    arcade.hook.targetX = Math.max(20, Math.min(GAME_W - 20, gx));
+    arcade.hook.targetY = Math.max(WATER_LINE + 20, Math.min(GAME_H - 20, gy));
+    if (!arcade.hookTouched) arcade.hookTouched = true;
+  }
+});
 
 // ============================================================
 // SOUND (Web Audio API)
@@ -798,6 +979,24 @@ function playSound(type) {
       gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now);
       osc.stop(now + 0.3);
+    } else if (type === "levelup") {
+      // Ascending arpeggio
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(554, now + 0.1);
+      osc.frequency.setValueAtTime(660, now + 0.2);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.35);
+      osc.start(now);
+      osc.stop(now + 0.35);
+    } else if (type === "gameover") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.linearRampToValueAtTime(150, now + 0.4);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.5);
+      osc.start(now);
+      osc.stop(now + 0.5);
     }
   } catch (e) {
     // Silently fail
@@ -845,13 +1044,25 @@ canvas.addEventListener("touchstart", (e) => {
   if (!audioCtx) initAudio();
   const touch = e.touches[0];
   if (handleMuteTap(touch.clientX, touch.clientY)) return;
-  handleTap();
+  const rect = canvas.getBoundingClientRect();
+  const gx = (touch.clientX / rect.width) * GAME_W;
+  const gy = (touch.clientY / rect.height) * GAME_H;
+  // Also set hook target on initial touch for arcade
+  if (gameMode === "arcade" && gameState === STATE.FISHING) {
+    arcade.hook.targetX = Math.max(20, Math.min(GAME_W - 20, gx));
+    arcade.hook.targetY = Math.max(WATER_LINE + 20, Math.min(GAME_H - 20, gy));
+    if (!arcade.hookTouched) arcade.hookTouched = true;
+  }
+  handleTap(gx, gy);
 }, { passive: false });
 
 canvas.addEventListener("click", (e) => {
   if (!audioCtx) initAudio();
   if (handleMuteTap(e.clientX, e.clientY)) return;
-  handleTap();
+  const rect = canvas.getBoundingClientRect();
+  const gx = (e.clientX / rect.width) * GAME_W;
+  const gy = (e.clientY / rect.height) * GAME_H;
+  handleTap(gx, gy);
 });
 
 // ============================================================
@@ -862,7 +1073,11 @@ function update(dt) {
 
   switch (gameState) {
     case STATE.FISHING:
-      updateFish(dt);
+      if (gameMode === "love") {
+        updateFish(dt);
+      } else {
+        updateArcadeFishing(dt);
+      }
       break;
 
     case STATE.CAUGHT:
@@ -884,6 +1099,95 @@ function update(dt) {
   }
 }
 
+function updateArcadeFishing(dt) {
+  if (!arcade.hookTouched) return; // Don't spawn or update until player touches
+
+  // Spawn fish on timer
+  const lvl = typeof LEVELS !== "undefined" ? LEVELS[arcade.level] : null;
+  const spawnInterval = lvl ? lvl.spawnInterval : 2;
+  const maxFish = lvl ? lvl.maxFish : 3;
+
+  arcade.spawnTimer += dt;
+  if (arcade.spawnTimer >= spawnInterval && arcade.fishes.length < maxFish) {
+    arcade.spawnTimer = 0;
+    spawnArcadeFish();
+  }
+
+  // Update fish positions
+  for (let i = arcade.fishes.length - 1; i >= 0; i--) {
+    const f = arcade.fishes[i];
+    f.x += f.speed * dt;
+    f.bobPhase += dt * 3;
+    f.drawY = f.y + Math.sin(f.bobPhase) * 6;
+
+    // Check collision with hook
+    const hookR = arcade.hook.radius + (arcade.upgrades.hookSize * 8);
+    const fx = f.x + 9 * f.size;
+    const fy = (f.drawY || f.y) + 5 * f.size;
+    const dx = fx - arcade.hook.x;
+    const dy = fy - (arcade.hook.y + 4);
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < hookR + f.radius) {
+      // Caught!
+      const coinAmt = lvl ? lvl.coinsPerCatch : 5;
+      arcade.coins += coinAmt;
+      arcade.catches++;
+      arcade.score += 10;
+      arcade.streak++;
+      if (arcade.streak > arcade.bestStreak) arcade.bestStreak = arcade.streak;
+      arcade.floatingTexts.push({ text: `+${coinAmt}`, x: f.x, y: f.drawY || f.y, life: 0.8 });
+      playSound("catch");
+      arcade.fishes.splice(i, 1);
+
+      // Check level complete
+      const target = lvl ? lvl.targetCatches : 10;
+      if (arcade.catches >= target) {
+        gameState = STATE.LEVEL_COMPLETE;
+        stateTimer = 0;
+        playSound("levelup");
+      }
+      continue;
+    }
+
+    // Check if escaped
+    if ((f.dir > 0 && f.x > GAME_W + 60) || (f.dir < 0 && f.x < -60)) {
+      arcade.fishes.splice(i, 1);
+      arcade.lives--;
+      arcade.streak = 0;
+      playSound("miss");
+      if (arcade.lives <= 0) {
+        gameState = STATE.GAME_OVER;
+        stateTimer = 0;
+        playSound("gameover");
+      }
+    }
+  }
+}
+
+function spawnArcadeFish() {
+  const fromLeft = Math.random() > 0.5;
+  const lvl = typeof LEVELS !== "undefined" ? LEVELS[arcade.level] : null;
+  const minSpeed = lvl ? lvl.speedRange[0] : 100;
+  const maxSpeed = lvl ? lvl.speedRange[1] : 180;
+  const baseSpeed = minSpeed + Math.random() * (maxSpeed - minSpeed);
+  const yPos = WATER_LINE + 80 + Math.random() * (GAME_H - WATER_LINE - 160);
+  const size = 1.6 + Math.random() * 0.6;
+
+  arcade.fishes.push({
+    x: fromLeft ? -50 : GAME_W + 50,
+    y: yPos,
+    drawY: yPos,
+    speed: fromLeft ? baseSpeed : -baseSpeed,
+    dir: fromLeft ? 1 : -1,
+    color: lvl ? (lvl.fishColor || "#cc5de8") : "#cc5de8",
+    bobPhase: Math.random() * Math.PI * 2,
+    size: size,
+    radius: 12 * size,
+    theme: lvl ? lvl.theme : "basic",
+  });
+}
+
 function draw(dt) {
   ctx.clearRect(0, 0, GAME_W, GAME_H);
 
@@ -894,12 +1198,16 @@ function draw(dt) {
       drawTitle(dt);
       break;
 
+    case STATE.MODE_SELECT:
+      drawModeSelect(dt);
+      break;
+
     case STATE.FISHING:
-      drawCatchZone();
-      if (fish && !fish.caught && !fish.escaped) {
-        drawFishSprite(fish.x, fish.drawY || fish.y, fish.color, fish.dir, true);
+      if (gameMode === "love") {
+        drawFishingLove(dt);
+      } else {
+        drawFishingArcade(dt);
       }
-      drawHUD();
       break;
 
     case STATE.CAUGHT:
@@ -921,10 +1229,465 @@ function draw(dt) {
     case STATE.END:
       drawEndScreen(dt);
       break;
+
+    case STATE.LEVEL_COMPLETE:
+      drawLevelComplete(dt);
+      break;
+
+    case STATE.GAME_OVER:
+      drawGameOver(dt);
+      break;
+
+    case STATE.VICTORY:
+      drawVictory(dt);
+      break;
+
+    case STATE.UPGRADE_SHOP:
+      drawUpgradeShop(dt);
+      break;
   }
 
-  if (gameState !== STATE.TITLE) {
+  if (gameState !== STATE.TITLE && gameState !== STATE.MODE_SELECT) {
     drawMuteBtn();
+  }
+}
+
+// Love-letter fishing draw (original behavior)
+function drawFishingLove(dt) {
+  drawCatchZone();
+  if (fish && !fish.caught && !fish.escaped) {
+    drawFishSprite(fish.x, fish.drawY || fish.y, fish.color, fish.dir, true);
+  }
+  drawHUD();
+}
+
+// Arcade fishing draw
+function drawFishingArcade(dt) {
+  drawArcadeHook(dt);
+  drawArcadeFishes(dt);
+  drawArcadeHUD();
+
+  // Level intro card (first 1.5 seconds)
+  if (stateTimer < 1.5 && !arcade.hookTouched) {
+    const alpha = stateTimer < 0.3 ? stateTimer / 0.3 : stateTimer > 1.2 ? (1.5 - stateTimer) / 0.3 : 1;
+    const lvl = LEVELS[arcade.level];
+    ctx.fillStyle = `rgba(15, 25, 45, ${alpha * 0.7})`;
+    ctx.fillRect(0, WATER_LINE + 50, GAME_W, 200);
+    drawText(`Level ${arcade.level + 1}`, GAME_W / 2, WATER_LINE + 110, `rgba(255,217,61,${alpha})`, 42);
+    drawText(lvl.name, GAME_W / 2, WATER_LINE + 165, `rgba(236,239,244,${alpha * 0.7})`, 24);
+  }
+
+  // Show instruction if not yet touched
+  if (!arcade.hookTouched && stateTimer >= 1.2) {
+    if (Math.sin(stateTimer * 3) > -0.3) {
+      drawText("touch and drag to catch fish!", GAME_W / 2, WATER_LINE + 300, "rgba(236,239,244,0.7)", 26);
+    }
+  }
+}
+
+// Stub drawing functions for arcade (expanded in later units)
+function drawArcadeHook(dt) {
+  // Smooth follow
+  const speed = 14;
+  arcade.hook.x += (arcade.hook.targetX - arcade.hook.x) * speed * dt;
+  arcade.hook.y += (arcade.hook.targetY - arcade.hook.y) * speed * dt;
+
+  // Fishing line from rod tip to hook
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(165, WATER_LINE - 135);
+  ctx.lineTo(arcade.hook.x, arcade.hook.y);
+  ctx.stroke();
+
+  // Hook sprite
+  const hx = arcade.hook.x - 6, hy = arcade.hook.y - 4;
+  fillRect(hx + 2, hy, 4, 12, "#ccc");
+  fillRect(hx, hy + 10, 8, 3, "#ccc");
+  fillRect(hx, hy + 7, 3, 6, "#ccc");
+
+  // Hook hitbox indicator (subtle)
+  const r = arcade.hook.radius + (arcade.upgrades.hookSize * 8);
+  ctx.strokeStyle = "rgba(136, 192, 208, 0.15)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(arcade.hook.x, arcade.hook.y + 4, r, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function drawArcadeFishes(dt) {
+  for (const f of arcade.fishes) {
+    drawThemedFish(f, dt);
+  }
+}
+
+// ============================================================
+// THEMED FISH RENDERING (Nail-Design Themes)
+// ============================================================
+function drawThemedFish(f, dt) {
+  const x = f.x, y = f.drawY || f.y;
+
+  // Draw base fish
+  drawFishSprite(x, y, f.color, f.dir, true, f.size);
+
+  // Apply theme overlay
+  const s = f.size;
+  const bw = Math.floor(18 * s), bh = Math.floor(10 * s);
+
+  switch (f.theme) {
+    case "french_tip": {
+      // White tip on tail end
+      const tipW = Math.floor(6 * s);
+      if (f.dir > 0) {
+        fillRect(x, y, tipW, bh, "#fff");
+        fillRect(x, y - 2 * s, tipW - 2 * s, 2 * s, "#fff");
+      } else {
+        fillRect(x + bw - tipW, y, tipW, bh, "#fff");
+        fillRect(x + bw - tipW + 2 * s, y - 2 * s, tipW - 2 * s, 2 * s, "#fff");
+      }
+      break;
+    }
+    case "ombre": {
+      // Gradient overlay using semi-transparent strips
+      for (let i = 0; i < bw; i += Math.max(1, Math.floor(2 * s))) {
+        const t = i / bw;
+        const alpha = 0.35;
+        const r = Math.floor(lerp(245, 180, t));
+        const g = Math.floor(lerp(198, 130, t));
+        const b = Math.floor(lerp(248, 230, t));
+        fillRect(x + i, y, Math.ceil(2 * s), bh, `rgba(${r},${g},${b},${alpha})`);
+      }
+      break;
+    }
+    case "hearts": {
+      // Small pixel hearts on body
+      const heartPositions = [
+        [Math.floor(4 * s), Math.floor(2 * s)],
+        [Math.floor(10 * s), Math.floor(4 * s)],
+        [Math.floor(14 * s), Math.floor(1 * s)],
+      ];
+      for (const [hx, hy] of heartPositions) {
+        const hs = Math.max(1, Math.floor(1.5 * s));
+        fillRect(x + hx, y + hy, hs, hs, "#ff1744");
+        fillRect(x + hx + hs, y + hy, hs, hs, "#ff1744");
+        fillRect(x + hx + hs / 2, y + hy + hs, hs, hs, "#ff1744");
+      }
+      break;
+    }
+    case "chrome": {
+      // Moving white highlight strips
+      const shineX = (f.x * 0.3) % (bw + 10);
+      const sw = Math.floor(3 * s);
+      fillRect(x + shineX, y, sw, bh, "rgba(255,255,255,0.4)");
+      fillRect(x + ((shineX + bw / 2) % bw), y + 2 * s, sw, bh - 4 * s, "rgba(255,255,255,0.25)");
+      break;
+    }
+    case "holographic": {
+      // Rainbow hue cycling overlay
+      const time = stateTimer || 0;
+      for (let i = 0; i < bw; i += Math.max(1, Math.floor(3 * s))) {
+        const hue = Math.floor((time * 60 + f.x + i * 8) % 360);
+        fillRect(x + i, y, Math.ceil(3 * s), bh, `hsla(${hue},80%,65%,0.35)`);
+      }
+      // Shimmer sparkle
+      if (Math.random() > 0.5) {
+        const sx = x + Math.random() * bw;
+        const sy = y + Math.random() * bh;
+        fillRect(sx, sy, 3, 3, "rgba(255,255,255,0.8)");
+      }
+      break;
+    }
+    case "glitter": {
+      // Flickering sparkle particles
+      for (let i = 0; i < 5; i++) {
+        if (Math.random() > 0.4) {
+          const gx = x + Math.random() * bw;
+          const gy = y + Math.random() * bh;
+          const gs = 2 + Math.floor(Math.random() * 3);
+          const color = Math.random() > 0.5 ? "rgba(255,255,255,0.9)" : "rgba(255,215,0,0.8)";
+          fillRect(gx, gy, gs, gs, color);
+        }
+      }
+      break;
+    }
+  }
+}
+
+function drawArcadeHUD() {
+  // Lives
+  let livesStr = "";
+  for (let i = 0; i < arcade.lives; i++) livesStr += "\u2665 ";
+  drawText(livesStr, 28, 44, "#ff6b6b", 22, "left");
+
+  // Coins
+  drawText(`\u25C9 ${arcade.coins}`, 28, 80, "#ffd93d", 20, "left");
+
+  // Catch progress
+  const lvl = typeof LEVELS !== "undefined" ? LEVELS[arcade.level] : null;
+  const target = lvl ? lvl.targetCatches : 10;
+  drawText(`${arcade.catches} / ${target}`, GAME_W / 2, 44, "rgba(236,239,244,0.5)", 22);
+
+  // Level indicator
+  drawText(`Level ${arcade.level + 1}`, GAME_W - 50, 44, "rgba(236,239,244,0.4)", 20, "right");
+
+  // Floating texts
+  for (let i = arcade.floatingTexts.length - 1; i >= 0; i--) {
+    const ft = arcade.floatingTexts[i];
+    ft.y -= 60 * (1/60); // approximate dt
+    ft.life -= 1/60;
+    if (ft.life <= 0) {
+      arcade.floatingTexts.splice(i, 1);
+    } else {
+      drawText(ft.text, ft.x, ft.y, `rgba(255,217,61,${ft.life})`, 24);
+    }
+  }
+}
+
+// ============================================================
+// LEVEL COMPLETE SCREEN
+// ============================================================
+function drawLevelComplete(dt) {
+  ctx.fillStyle = "rgba(15, 25, 45, 0.88)";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  const lvl = LEVELS[arcade.level];
+  const bobY = Math.sin(stateTimer * 2) * 6;
+
+  drawText("Level Complete!", GAME_W / 2, 320 + bobY, "#ffd93d", 42);
+  drawText(lvl.name, GAME_W / 2, 380 + bobY, "rgba(236,239,244,0.6)", 24);
+
+  // Stats
+  drawText(`Fish caught: ${arcade.catches}`, GAME_W / 2, 480, "#eceff4", 26);
+  drawText(`Coins earned: ${arcade.coins}`, GAME_W / 2, 530, "#ffd93d", 24);
+  drawText(`Best streak: ${arcade.bestStreak}x`, GAME_W / 2, 575, "rgba(236,239,244,0.5)", 20);
+
+  // Buttons
+  const isLastLevel = arcade.level >= LEVELS.length - 1;
+
+  if (!isLastLevel) {
+    // Next Level button
+    const nx = 120, ny = 680, nw = 220, nh = 80;
+    fillRect(nx, ny, nw, nh, "rgba(107, 203, 119, 0.2)");
+    ctx.strokeStyle = "rgba(107, 203, 119, 0.6)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(nx, ny, nw, nh);
+    drawText("Next Level", nx + nw / 2, ny + nh / 2, "#6bcb77", 24);
+  }
+
+  // Upgrade Shop button
+  const ux = isLastLevel ? (GAME_W - 220) / 2 : 410, uy = 680, uw = 220, uh = 80;
+  fillRect(ux, uy, uw, uh, "rgba(204, 93, 232, 0.2)");
+  ctx.strokeStyle = "rgba(204, 93, 232, 0.6)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ux, uy, uw, uh);
+  drawText("Upgrades", ux + uw / 2, uy + uh / 2, "#cc5de8", 24);
+}
+
+function handleLevelCompleteTap(gx, gy) {
+  const isLastLevel = arcade.level >= LEVELS.length - 1;
+
+  // Next Level button: (120, 680) to (340, 760)
+  if (!isLastLevel && gx >= 120 && gx <= 340 && gy >= 680 && gy <= 760) {
+    arcade.level++;
+    arcade.catches = 0;
+    arcade.streak = 0;
+    arcade.spawnTimer = 0;
+    arcade.fishes = [];
+    arcade.hookTouched = false;
+    const lvl = LEVELS[arcade.level];
+    arcade.lives = lvl.lives;
+    gameState = STATE.FISHING;
+    stateTimer = 0;
+    return;
+  }
+
+  // Upgrade Shop button
+  const ux = isLastLevel ? (GAME_W - 220) / 2 : 410;
+  if (gx >= ux && gx <= ux + 220 && gy >= 680 && gy <= 760) {
+    if (isLastLevel) {
+      // Last level complete -> victory!
+      gameState = STATE.VICTORY;
+      stateTimer = 0;
+    } else {
+      gameState = STATE.UPGRADE_SHOP;
+      stateTimer = 0;
+    }
+    return;
+  }
+
+  // If last level, tapping Next Level area triggers victory
+  if (isLastLevel && gx >= 120 && gx <= 340 && gy >= 680 && gy <= 760) {
+    gameState = STATE.VICTORY;
+    stateTimer = 0;
+  }
+}
+
+// ============================================================
+// GAME OVER SCREEN
+// ============================================================
+function drawGameOver(dt) {
+  ctx.fillStyle = "rgba(15, 25, 45, 0.92)";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  const bobY = Math.sin(stateTimer * 1.5) * 5;
+  drawText("Game Over", GAME_W / 2, 380 + bobY, "#ff6b6b", 48);
+
+  drawText(`Reached: Level ${arcade.level + 1}`, GAME_W / 2, 480, "#eceff4", 26);
+  drawText(LEVELS[arcade.level].name, GAME_W / 2, 520, "rgba(236,239,244,0.5)", 22);
+  drawText(`Total fish: ${arcade.catches}`, GAME_W / 2, 590, "#eceff4", 22);
+  drawText(`Coins: ${arcade.coins}`, GAME_W / 2, 630, "#ffd93d", 22);
+
+  if (stateTimer > 1.5 && Math.sin(stateTimer * 3) > -0.3) {
+    drawText("tap to continue", GAME_W / 2, GAME_H - 250, "rgba(236,239,244,0.5)", 24);
+  }
+}
+
+// ============================================================
+// VICTORY SCREEN
+// ============================================================
+function drawVictory(dt) {
+  ctx.fillStyle = "rgba(15, 25, 45, 0.88)";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  const bobY = Math.sin(stateTimer * 1.8) * 8;
+
+  // Floating sparkles
+  for (let i = 0; i < 8; i++) {
+    const sx = (GAME_W / 2) + Math.sin(stateTimer * 2 + i * 0.8) * 200;
+    const sy = 200 + Math.cos(stateTimer * 1.5 + i * 1.2) * 150;
+    const ss = 3 + Math.sin(stateTimer * 4 + i) * 3;
+    if (ss > 1) fillRect(sx, sy, ss, ss, "#ffd93d");
+  }
+
+  drawText("\u2665", GAME_W / 2, 300 + bobY, "#ff6b6b", 72);
+  drawText("you did it!", GAME_W / 2, 420 + bobY, "#ffd93d", 48);
+  drawText("all 6 depths conquered!", GAME_W / 2, 480, "#eceff4", 26);
+
+  // Show themed fish parade
+  for (let i = 0; i < 6; i++) {
+    const fx = 100 + i * 100 + Math.sin(stateTimer * 2 + i) * 10;
+    const fy = 580 + Math.sin(stateTimer * 1.5 + i * 0.5) * 8;
+    drawFishSprite(fx, fy, LEVELS[i].fishColor, 1, false, 1.4);
+  }
+
+  drawText(`Total score: ${arcade.score}`, GAME_W / 2, 700, "#ffd93d", 28);
+  drawText(`Coins: ${arcade.coins}`, GAME_W / 2, 745, "rgba(255,217,61,0.6)", 22);
+
+  if (stateTimer > 2 && Math.sin(stateTimer * 3) > -0.3) {
+    drawText("tap to play again", GAME_W / 2, GAME_H - 230, "rgba(236,239,244,0.5)", 24);
+  }
+}
+
+// ============================================================
+// UPGRADE SHOP
+// ============================================================
+const UPGRADES = {
+  hookSize: { name: "Hook Size", desc: ["Small", "Medium", "Large"], costs: [0, 40, 120], icon: "\u2693" },
+  lineLength: { name: "Line Reach", desc: ["Short", "Medium", "Long"], costs: [0, 50, 150], icon: "\u2502" },
+};
+
+function drawUpgradeShop(dt) {
+  ctx.fillStyle = "rgba(15, 25, 45, 0.94)";
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  const bobY = Math.sin(stateTimer * 2) * 4;
+  drawText("Upgrade Shop", GAME_W / 2, 180 + bobY, "#eceff4", 38);
+  drawText(`\u25C9 ${arcade.coins}`, GAME_W / 2, 230, "#ffd93d", 26);
+
+  // Two upgrade columns
+  const categories = ["hookSize", "lineLength"];
+  const colW = 280, gap = 40;
+  const startX = (GAME_W - (colW * 2 + gap)) / 2;
+
+  for (let c = 0; c < categories.length; c++) {
+    const key = categories[c];
+    const upg = UPGRADES[key];
+    const currentTier = arcade.upgrades[key];
+    const cx = startX + c * (colW + gap);
+    const cy = 300;
+
+    // Column background
+    fillRect(cx, cy, colW, 380, "rgba(255,255,255,0.04)");
+    ctx.strokeStyle = "rgba(136, 192, 208, 0.2)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx, cy, colW, 380);
+
+    // Title
+    drawText(upg.icon, cx + colW / 2, cy + 40, "#eceff4", 36);
+    drawText(upg.name, cx + colW / 2, cy + 80, "#eceff4", 22);
+
+    // Tiers
+    for (let t = 0; t < 3; t++) {
+      const ty = cy + 120 + t * 80;
+      const isOwned = currentTier >= t;
+      const isNext = currentTier === t - 1 || (t === 0 && currentTier < 0);
+      const canAfford = !isOwned && arcade.coins >= upg.costs[t];
+      const isNextBuyable = currentTier === t - 1 && canAfford;
+
+      if (isOwned) {
+        fillRect(cx + 20, ty, colW - 40, 60, "rgba(107, 203, 119, 0.15)");
+        drawText(upg.desc[t], cx + colW / 2, ty + 22, "#6bcb77", 18);
+        drawText("owned", cx + colW / 2, ty + 45, "rgba(107, 203, 119, 0.5)", 14);
+      } else if (isNextBuyable) {
+        fillRect(cx + 20, ty, colW - 40, 60, "rgba(255, 217, 61, 0.15)");
+        ctx.strokeStyle = "rgba(255, 217, 61, 0.4)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cx + 20, ty, colW - 40, 60);
+        drawText(upg.desc[t], cx + colW / 2, ty + 22, "#eceff4", 18);
+        drawText(`\u25C9 ${upg.costs[t]}`, cx + colW / 2, ty + 45, "#ffd93d", 16);
+      } else {
+        fillRect(cx + 20, ty, colW - 40, 60, "rgba(255,255,255,0.03)");
+        const color = t <= currentTier + 1 ? "rgba(236,239,244,0.3)" : "rgba(236,239,244,0.15)";
+        drawText(upg.desc[t], cx + colW / 2, ty + 22, color, 18);
+        if (t === currentTier + 1 && !canAfford) {
+          drawText(`\u25C9 ${upg.costs[t]}`, cx + colW / 2, ty + 45, "rgba(255,100,100,0.5)", 16);
+        } else if (t > currentTier + 1) {
+          drawText("locked", cx + colW / 2, ty + 45, "rgba(236,239,244,0.15)", 14);
+        }
+      }
+    }
+  }
+
+  // Back button
+  const bx = (GAME_W - 200) / 2, by = 720, bw = 200, bh = 60;
+  fillRect(bx, by, bw, bh, "rgba(136, 192, 208, 0.15)");
+  ctx.strokeStyle = "rgba(136, 192, 208, 0.3)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(bx, by, bw, bh);
+  drawText("Back", bx + bw / 2, by + bh / 2, "rgba(236,239,244,0.7)", 24);
+}
+
+function handleUpgradeShopTap(gx, gy) {
+  // Back button: centered, (275, 720) to (475, 780)
+  const bx = (GAME_W - 200) / 2;
+  if (gx >= bx && gx <= bx + 200 && gy >= 720 && gy <= 780) {
+    gameState = STATE.LEVEL_COMPLETE;
+    stateTimer = 0;
+    return;
+  }
+
+  // Check upgrade purchases
+  const categories = ["hookSize", "lineLength"];
+  const colW = 280, gap = 40;
+  const startX = (GAME_W - (colW * 2 + gap)) / 2;
+
+  for (let c = 0; c < categories.length; c++) {
+    const key = categories[c];
+    const upg = UPGRADES[key];
+    const currentTier = arcade.upgrades[key];
+    const cx = startX + c * (colW + gap);
+
+    for (let t = 0; t < 3; t++) {
+      const ty = 300 + 120 + t * 80;
+      const isNextBuyable = currentTier === t - 1 && arcade.coins >= upg.costs[t];
+
+      if (isNextBuyable && gx >= cx + 20 && gx <= cx + colW - 20 && gy >= ty && gy <= ty + 60) {
+        arcade.coins -= upg.costs[t];
+        arcade.upgrades[key] = t;
+        playSound("catch"); // reuse catch sound for purchase
+        return;
+      }
+    }
   }
 }
 
