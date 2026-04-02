@@ -1240,8 +1240,10 @@ function handleMuteTap(clientX, clientY) {
 }
 
 // Input handlers
+let lastTouchTime = 0;
 canvas.addEventListener("touchstart", (e) => {
   e.preventDefault();
+  lastTouchTime = Date.now();
   if (!audioCtx) initAudio();
   const touch = e.touches[0];
   if (handleMuteTap(touch.clientX, touch.clientY)) return;
@@ -1259,6 +1261,7 @@ canvas.addEventListener("touchstart", (e) => {
 }, { passive: false });
 
 canvas.addEventListener("click", (e) => {
+  if (Date.now() - lastTouchTime < 500) return;
   if (!audioCtx) initAudio();
   if (handleMuteTap(e.clientX, e.clientY)) return;
   const rect = canvas.getBoundingClientRect();
