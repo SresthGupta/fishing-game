@@ -145,7 +145,7 @@ let difficulty = 0; // increases with each catch
 function createArcadeState() {
   return {
     fishes: [],
-    hook: { x: GAME_W / 2, y: 950, targetX: GAME_W / 2, targetY: 950, radius: 20 },
+    hook: { x: GAME_W / 2, y: 950, targetX: GAME_W / 2, targetY: 950, radius: 12 },
     hookTouched: false,
     focus: 100,
     maxFocus: 100,
@@ -168,12 +168,12 @@ let arcade = null; // initialized after WATER_LINE is defined
 // ZONE CONFIGURATION (depth-based open-ended arcade)
 // ============================================================
 const ZONES = [
-  { name: "Surface", theme: "french_tip", depthMin: 0, depthMax: 160, fishColor: "#f5c6a8", speedRange: [60, 100], spawnInterval: 3, maxFish: 2, focusDrain: 10, waterTop: [70, 150, 200], waterBot: [50, 120, 170], coinsCommon: 1, coinsRare: 3, coinsEpic: 8 },
-  { name: "Shallows", theme: "ombre", depthMin: 160, depthMax: 320, fishColor: "#e599f7", speedRange: [80, 140], spawnInterval: 2.5, maxFish: 3, focusDrain: 13, waterTop: [50, 120, 170], waterBot: [35, 80, 130], coinsCommon: 2, coinsRare: 5, coinsEpic: 15, reqLineReach: 1 },
-  { name: "Reef", theme: "cat_eye", depthMin: 320, depthMax: 480, fishColor: "#74c0fc", speedRange: [100, 170], spawnInterval: 2, maxFish: 3, focusDrain: 16, waterTop: [40, 90, 150], waterBot: [25, 55, 100], coinsCommon: 3, coinsRare: 8, coinsEpic: 25, reqLineReach: 2 },
-  { name: "Twilight", theme: "chrome", depthMin: 480, depthMax: 640, fishColor: "#c0c0c0", speedRange: [120, 195], spawnInterval: 1.5, maxFish: 4, focusDrain: 19, waterTop: [30, 60, 110], waterBot: [18, 38, 72], coinsCommon: 5, coinsRare: 12, coinsEpic: 40, reqLineReach: 3, reqSpeed: 1 },
-  { name: "Midnight", theme: "holographic", depthMin: 640, depthMax: 800, fishColor: "#b197fc", speedRange: [140, 220], spawnInterval: 1.2, maxFish: 4, focusDrain: 22, waterTop: [20, 40, 80], waterBot: [12, 25, 55], coinsCommon: 8, coinsRare: 20, coinsEpic: 60, reqLineReach: 4, reqSpeed: 2 },
-  { name: "Abyss", theme: "jelly", depthMin: 800, depthMax: 960, fishColor: "#ffd93d", speedRange: [160, 260], spawnInterval: 0.8, maxFish: 5, focusDrain: 25, waterTop: [12, 25, 55], waterBot: [5, 12, 30], coinsCommon: 12, coinsRare: 30, coinsEpic: 100, reqLineReach: 4, reqLure: 2 },
+  { name: "Surface", theme: "french_tip", depthMin: 0, depthMax: 160, fishColor: "#f5c6a8", speedRange: [120, 200], spawnInterval: 1.8, maxFish: 3, focusDrain: 18, waterTop: [70, 150, 200], waterBot: [50, 120, 170], coinsCommon: 1, coinsRare: 3, coinsEpic: 8 },
+  { name: "Shallows", theme: "ombre", depthMin: 160, depthMax: 320, fishColor: "#e599f7", speedRange: [150, 250], spawnInterval: 1.5, maxFish: 4, focusDrain: 22, waterTop: [50, 120, 170], waterBot: [35, 80, 130], coinsCommon: 2, coinsRare: 5, coinsEpic: 15, reqLineReach: 1 },
+  { name: "Reef", theme: "cat_eye", depthMin: 320, depthMax: 480, fishColor: "#74c0fc", speedRange: [180, 300], spawnInterval: 1.2, maxFish: 4, focusDrain: 26, waterTop: [40, 90, 150], waterBot: [25, 55, 100], coinsCommon: 3, coinsRare: 8, coinsEpic: 25, reqLineReach: 2 },
+  { name: "Twilight", theme: "chrome", depthMin: 480, depthMax: 640, fishColor: "#c0c0c0", speedRange: [220, 350], spawnInterval: 1.0, maxFish: 5, focusDrain: 30, waterTop: [30, 60, 110], waterBot: [18, 38, 72], coinsCommon: 5, coinsRare: 12, coinsEpic: 40, reqLineReach: 3, reqSpeed: 1 },
+  { name: "Midnight", theme: "holographic", depthMin: 640, depthMax: 800, fishColor: "#b197fc", speedRange: [260, 400], spawnInterval: 0.8, maxFish: 5, focusDrain: 35, waterTop: [20, 40, 80], waterBot: [12, 25, 55], coinsCommon: 8, coinsRare: 20, coinsEpic: 60, reqLineReach: 4, reqSpeed: 2 },
+  { name: "Abyss", theme: "jelly", depthMin: 800, depthMax: 960, fishColor: "#ffd93d", speedRange: [300, 450], spawnInterval: 0.6, maxFish: 6, focusDrain: 40, waterTop: [12, 25, 55], waterBot: [5, 12, 30], coinsCommon: 12, coinsRare: 30, coinsEpic: 100, reqLineReach: 4, reqLure: 2 },
 ];
 
 // ============================================================
@@ -1391,7 +1391,7 @@ function updateArcadeFishing(dt) {
     f.drawY = f.y + Math.sin(f.bobPhase) * 6;
 
     // Check collision with hook
-    var hookR = arcade.hook.radius + (arcade.upgrades.hookSize * 8);
+    var hookR = arcade.hook.radius + (arcade.upgrades.hookSize * 6);
     var fx = f.x + 9 * f.size;
     var fy = (f.drawY || f.y) + 5 * f.size;
     var dx = fx - arcade.hook.x;
@@ -1642,7 +1642,7 @@ function drawArcadeHook(dt) {
   fillRect(hx, hy + 7, 3, 6, "#ccc");
 
   // Hook hitbox indicator (subtle)
-  var r = arcade.hook.radius + (arcade.upgrades.hookSize * 8);
+  var r = arcade.hook.radius + (arcade.upgrades.hookSize * 6);
   ctx.strokeStyle = "rgba(136, 192, 208, 0.15)";
   ctx.lineWidth = 1;
   ctx.beginPath();
