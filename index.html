@@ -1114,6 +1114,7 @@ document.addEventListener("mousemove", (e) => {
 let audioCtx = null;
 let muted = false;
 const MUTE_BTN = { x: GAME_W - 65, y: 14, w: 48, h: 38 };
+const MENU_BTN = { x: GAME_W - 130, y: 14, w: 48, h: 38 };
 
 function initAudio() {
   try {
@@ -1226,6 +1227,34 @@ function drawMuteBtn() {
   }
 }
 
+function drawMenuBtn() {
+  if (gameMode !== "arcade") return;
+  if (gameState !== STATE.FISHING && gameState !== STATE.RUN_END) return;
+  var x = MENU_BTN.x, y = MENU_BTN.y;
+  var c = "rgba(236,239,244,0.45)";
+  // Hamburger menu icon (3 horizontal lines)
+  fillRect(x + 8, y + 10, 28, 4, c);
+  fillRect(x + 8, y + 18, 28, 4, c);
+  fillRect(x + 8, y + 26, 28, 4, c);
+}
+
+function handleMenuTap(clientX, clientY) {
+  if (gameMode !== "arcade") return false;
+  if (gameState !== STATE.FISHING && gameState !== STATE.RUN_END) return false;
+  var rect = canvas.getBoundingClientRect();
+  var gx = (clientX / rect.width) * GAME_W;
+  var gy = (clientY / rect.height) * GAME_H;
+  if (gx >= MENU_BTN.x - 8 && gx <= MENU_BTN.x + MENU_BTN.w + 8 &&
+      gy >= MENU_BTN.y - 8 && gy <= MENU_BTN.y + MENU_BTN.h + 8) {
+    // Save run state so we can resume or just go to menu
+    saveArcade();
+    gameState = STATE.ARCADE_MENU;
+    stateTimer = 0;
+    return true;
+  }
+  return false;
+}
+
 function handleMuteTap(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
   const gx = (clientX / rect.width) * GAME_W;
@@ -1246,6 +1275,7 @@ canvas.addEventListener("touchstart", (e) => {
   lastTouchTime = Date.now();
   if (!audioCtx) initAudio();
   const touch = e.touches[0];
+  if (handleMenuTap(touch.clientX, touch.clientY)) return;
   if (handleMuteTap(touch.clientX, touch.clientY)) return;
   const rect = canvas.getBoundingClientRect();
   const gx = (touch.clientX / rect.width) * GAME_W;
@@ -1263,6 +1293,7 @@ canvas.addEventListener("touchstart", (e) => {
 canvas.addEventListener("click", (e) => {
   if (Date.now() - lastTouchTime < 500) return;
   if (!audioCtx) initAudio();
+  if (handleMenuTap(e.clientX, e.clientY)) return;
   if (handleMuteTap(e.clientX, e.clientY)) return;
   const rect = canvas.getBoundingClientRect();
   const gx = (e.clientX / rect.width) * GAME_W;
@@ -1583,6 +1614,7 @@ function draw(dt) {
 
   if (gameState !== STATE.TITLE && gameState !== STATE.MODE_SELECT) {
     drawMuteBtn();
+    drawMenuBtn();
   }
 }
 
